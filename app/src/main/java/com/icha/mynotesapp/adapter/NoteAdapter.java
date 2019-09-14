@@ -2,6 +2,7 @@ package com.icha.mynotesapp.adapter;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.net.Uri;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -13,10 +14,12 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.icha.mynotesapp.CustomOnItemClickListener;
 import com.icha.mynotesapp.R;
-import com.icha.mynotesapp.activity.NoteAddUpdateActivity;
+import com.icha.mynotesapp.activity.FormAddUpdateActivity;
 import com.icha.mynotesapp.entity.Note;
 
 import java.util.ArrayList;
+
+import static com.icha.mynotesapp.db.DatabaseContract.NoteColumns.CONTENT_URI;
 
 public class NoteAdapter extends RecyclerView.Adapter<NoteAdapter.NoteViewHolder> {
     private ArrayList<Note> listNotes = new ArrayList<>();
@@ -30,16 +33,20 @@ public class NoteAdapter extends RecyclerView.Adapter<NoteAdapter.NoteViewHolder
     }
     @Override
     public void onBindViewHolder(@NonNull NoteViewHolder holder, int position) {
-        holder.tvTitle.setText(listNotes.get(position).getTitle());
-        holder.tvDate.setText(listNotes.get(position).getDate());
-        holder.tvDescription.setText(listNotes.get(position).getDescription());
+        holder.tvTitle.setText(getListNotes().get(position).getTitle());
+        holder.tvDate.setText(getListNotes().get(position).getDate());
+        holder.tvDescription.setText(getListNotes().get(position).getDescription());
         holder.cvNote.setOnClickListener(new CustomOnItemClickListener(position, new CustomOnItemClickListener.OnItemClickCallback() {
             @Override
             public void onItemClicked(View view, int position) {
-                Intent intent = new Intent(activity, NoteAddUpdateActivity.class);
-                intent.putExtra(NoteAddUpdateActivity.EXTRA_POSITION, position);
-                intent.putExtra(NoteAddUpdateActivity.EXTRA_NOTE, listNotes.get(position));
-                activity.startActivityForResult(intent, NoteAddUpdateActivity.REQUEST_UPDATE);
+                Intent intent = new Intent(activity, FormAddUpdateActivity.class);
+                // Set intent dengan data uri row note by id
+                // content://com.dicoding.picodiploma.mynotesapp/note/id
+                Uri uri = Uri.parse(CONTENT_URI + "/" + getListNotes().get(position).getId());
+                intent.setData(uri);
+                intent.putExtra(FormAddUpdateActivity.EXTRA_POSITION, position);
+                intent.putExtra(FormAddUpdateActivity.EXTRA_NOTE, listNotes.get(position));
+                activity.startActivityForResult(intent, FormAddUpdateActivity.REQUEST_UPDATE);
             }
         }));
     }

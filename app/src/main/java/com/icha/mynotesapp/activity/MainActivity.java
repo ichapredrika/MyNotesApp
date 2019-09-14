@@ -4,9 +4,14 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import android.content.Context;
 import android.content.Intent;
+import android.database.ContentObserver;
+import android.database.Cursor;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.view.View;
 import android.widget.ProgressBar;
 
@@ -15,13 +20,14 @@ import com.google.android.material.snackbar.Snackbar;
 import com.icha.mynotesapp.LoadNotesCallback;
 import com.icha.mynotesapp.R;
 import com.icha.mynotesapp.adapter.NoteAdapter;
-import com.icha.mynotesapp.db.NoteHelper;
 import com.icha.mynotesapp.entity.Note;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 
-import static com.icha.mynotesapp.activity.NoteAddUpdateActivity.REQUEST_UPDATE;
+import static com.icha.mynotesapp.activity.FormAddUpdateActivity.REQUEST_UPDATE;
+import static com.icha.mynotesapp.db.DatabaseContract.NoteColumns.CONTENT_URI;
+import static com.icha.mynotesapp.helper.MappingHelper.mapCursorToArrayList;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener, LoadNotesCallback {
     private RecyclerView rvNotes;
@@ -29,7 +35,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private FloatingActionButton fabAdd;
     private static final String EXTRA_STATE = "EXTRA_STATE";
     private NoteAdapter adapter;
-    private NoteHelper noteHelper;
+
+    private static HandlerThread handlerThread;
+    private DataObserver myObserver;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -42,10 +50,15 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         rvNotes.setLayoutManager(new LinearLayoutManager(this));
         rvNotes.setHasFixedSize(true);
 
-        noteHelper = NoteHelper.getInstance(getApplicationContext());
-        noteHelper.open();
-
         progressBar = findViewById(R.id.progressbar);
+
+        handlerThread = new HandlerThread("DataObserver");
+        handlerThread.start();
+        Handler handler = new Handler(handlerThread.getLooper());
+        myObserver = new DataObserver(handler, this);
+        getContentResolver().registerContentObserver(CONTENT_URI, true, myObserver);
+
+
         fabAdd = findViewById(R.id.fab_add);
         fabAdd.setOnClickListener(this);
 
@@ -53,7 +66,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         rvNotes.setAdapter(adapter);
 
         if (savedInstanceState == null) {
-            new LoadNotesAsync(noteHelper, this).execute();
+            new LoadNoteAsync(this, this).execute();
         } else {
             ArrayList<Note> list = savedInstanceState.getParcelableArrayList(EXTRA_STATE);
             if (list != null) {
@@ -66,22 +79,22 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (data != null) {
-            if (requestCode == NoteAddUpdateActivity.REQUEST_ADD) {
-                if (resultCode == NoteAddUpdateActivity.RESULT_ADD) {
-                    Note note = data.getParcelableExtra(NoteAddUpdateActivity.EXTRA_NOTE);
+            if (requestCode == FormAddUpdateActivity.REQUEST_ADD) {
+                if (resultCode == FormAddUpdateActivity.RESULT_ADD) {
+                    Note note = data.getParcelableExtra(FormAddUpdateActivity.EXTRA_NOTE);
                     adapter.addItem(note);
                     rvNotes.smoothScrollToPosition(adapter.getItemCount() - 1);
                     showSnackbarMessage("Satu item berhasil ditambahkan");
                 } else if (requestCode == REQUEST_UPDATE) {
-                    if (resultCode == NoteAddUpdateActivity.RESULT_UPDATE) {
-                        Note note = data.getParcelableExtra(NoteAddUpdateActivity.EXTRA_NOTE);
-                        int position = data.getIntExtra(NoteAddUpdateActivity.EXTRA_POSITION, 0);
+                    if (resultCode == FormAddUpdateActivity.RESULT_UPDATE) {
+                        Note note = data.getParcelableExtra(FormAddUpdateActivity.EXTRA_NOTE);
+                        int position = data.getIntExtra(FormAddUpdateActivity.EXTRA_POSITION, 0);
                         adapter.updateItem(position, note);
                         rvNotes.smoothScrollToPosition(position);
                         showSnackbarMessage("Satu item berhasil diubah");
                     }
-                } else if (resultCode == NoteAddUpdateActivity.RESULT_DELETE) {
-                    int position = data.getIntExtra(NoteAddUpdateActivity.EXTRA_POSITION, 0);
+                } else if (resultCode == FormAddUpdateActivity.RESULT_DELETE) {
+                    int position = data.getIntExtra(FormAddUpdateActivity.EXTRA_POSITION, 0);
                     adapter.removeItem(position);
                     showSnackbarMessage("Satu item berhasil dihapus");
                 }
@@ -96,14 +109,13 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        noteHelper.close();
     }
 
     @Override
     public void onClick(View view) {
         if (view.getId() == R.id.fab_add) {
-            Intent intent = new Intent(MainActivity.this, NoteAddUpdateActivity.class);
-            startActivityForResult(intent, NoteAddUpdateActivity.REQUEST_ADD);
+            Intent intent = new Intent(MainActivity.this, FormAddUpdateActivity.class);
+            startActivityForResult(intent, FormAddUpdateActivity.REQUEST_ADD);
         }
     }
 
@@ -118,9 +130,15 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     @Override
-    public void postExecute(ArrayList<Note> notes) {
+    public void postExecute(Cursor notes) {
         progressBar.setVisibility(View.INVISIBLE);
-        adapter.setListNotes(notes);
+        ArrayList<Note> listNotes = mapCursorToArrayList(notes);
+        if (listNotes.size() > 0) {
+            adapter.setListNotes(listNotes);
+        } else {
+            adapter.setListNotes(new ArrayList<Note>());
+            showSnackbarMessage("Tidak ada data saat ini");
+        }
     }
 
     @Override
@@ -129,12 +147,12 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         outState.putParcelableArrayList(EXTRA_STATE, adapter.getListNotes());
     }
 
-    private static class LoadNotesAsync extends AsyncTask<Void, Void, ArrayList<Note>> {
-        private final WeakReference<NoteHelper> weakNoteHelper;
+    private static class LoadNoteAsync extends AsyncTask<Void, Void, Cursor> {
+        private final WeakReference<Context> weakContext;
         private final WeakReference<LoadNotesCallback> weakCallback;
 
-        private LoadNotesAsync(NoteHelper noteHelper, LoadNotesCallback callback) {
-            weakNoteHelper = new WeakReference<>(noteHelper);
+        private LoadNoteAsync(Context context, LoadNotesCallback callback) {
+            weakContext = new WeakReference<>(context);
             weakCallback = new WeakReference<>(callback);
         }
 
@@ -144,13 +162,27 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             weakCallback.get().preExecute();
         }
         @Override
-        protected ArrayList<Note> doInBackground(Void... voids) {
-            return weakNoteHelper.get().getAllNotes();
+        protected Cursor doInBackground(Void... voids) {
+            Context context = weakContext.get();
+            return context.getContentResolver().query(CONTENT_URI, null, null, null, null);
         }
         @Override
-        protected void onPostExecute(ArrayList<Note> notes) {
+        protected void onPostExecute(Cursor notes) {
             super.onPostExecute(notes);
             weakCallback.get().postExecute(notes);
+        }
+    }
+
+    public static class DataObserver extends ContentObserver {
+        final Context context;
+        public DataObserver(Handler handler, Context context) {
+            super(handler);
+            this.context = context;
+        }
+        @Override
+        public void onChange(boolean selfChange) {
+            super.onChange(selfChange);
+            new LoadNoteAsync(context, (LoadNotesCallback) context).execute();
         }
     }
 }

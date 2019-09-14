@@ -14,26 +14,25 @@ import java.util.ArrayList;
 import static android.provider.MediaStore.Audio.Playlists.Members._ID;
 import static com.icha.mynotesapp.db.DatabaseContract.NoteColumns.DATE;
 import static com.icha.mynotesapp.db.DatabaseContract.NoteColumns.DESCRIPTION;
+import static com.icha.mynotesapp.db.DatabaseContract.NoteColumns.TABLE_NAME;
 import static com.icha.mynotesapp.db.DatabaseContract.NoteColumns.TITLE;
 import static com.icha.mynotesapp.db.DatabaseContract.TABLE_NOTE;
 
 public class NoteHelper {
-    private static final String DATABASE_TABLE = TABLE_NOTE;
-    private static DatabaseHelper dataBaseHelper;
+    private static final String DATABASE_TABLE = TABLE_NAME;
+    private final DatabaseHelper dataBaseHelper;
     private static NoteHelper INSTANCE;
-    private static SQLiteDatabase database;
 
-    //Singleton pattern >> modifier is private
-    //constructor
+    private SQLiteDatabase database;
+
     private NoteHelper(Context context) {
         dataBaseHelper = new DatabaseHelper(context);
     }
 
-    //initializie db
     public static NoteHelper getInstance(Context context) {
-        if (INSTANCE == null) {
-            synchronized (SQLiteOpenHelper.class) {
-                if (INSTANCE == null) {
+        if (INSTANCE == null){
+            synchronized (SQLiteOpenHelper.class){
+                if (INSTANCE == null){
                     INSTANCE = new NoteHelper(context);
                 }
             }
@@ -41,26 +40,27 @@ public class NoteHelper {
         return INSTANCE;
     }
 
-    //Open-close db connection
+
     public void open() throws SQLException {
         database = dataBaseHelper.getWritableDatabase();
     }
+
     public void close() {
         dataBaseHelper.close();
+
         if (database.isOpen())
             database.close();
     }
 
-    //CRUD
-    public ArrayList<Note> getAllNotes() {
+    public ArrayList<Note> query() {
         ArrayList<Note> arrayList = new ArrayList<>();
-        Cursor cursor = database.query(DATABASE_TABLE, null,
-                null,
-                null,
-                null,
-                null,
-                _ID + " ASC",
-                null);
+        Cursor cursor = database.query(DATABASE_TABLE
+                , null
+                , null
+                , null
+                , null
+                , null, _ID + " DESC"
+                , null);
         cursor.moveToFirst();
         Note note;
         if (cursor.getCount() > 0) {
@@ -70,25 +70,25 @@ public class NoteHelper {
                 note.setTitle(cursor.getString(cursor.getColumnIndexOrThrow(TITLE)));
                 note.setDescription(cursor.getString(cursor.getColumnIndexOrThrow(DESCRIPTION)));
                 note.setDate(cursor.getString(cursor.getColumnIndexOrThrow(DATE)));
+
                 arrayList.add(note);
                 cursor.moveToNext();
+
             } while (!cursor.isAfterLast());
         }
         cursor.close();
         return arrayList;
     }
 
-    //insertion
-    public long insertNote(Note note) {
-        ContentValues args = new ContentValues();
-        args.put(TITLE, note.getTitle());
-        args.put(DESCRIPTION, note.getDescription());
-        args.put(DATE, note.getDate());
-        return database.insert(DATABASE_TABLE, null, args);
+    public long insert(Note note) {
+        ContentValues initialValues = new ContentValues();
+        initialValues.put(TITLE, note.getTitle());
+        initialValues.put(DESCRIPTION, note.getDescription());
+        initialValues.put(DATE, note.getDate());
+        return database.insert(DATABASE_TABLE, null, initialValues);
     }
 
-    //update
-    public int updateNote(Note note) {
+    public int update(Note note) {
         ContentValues args = new ContentValues();
         args.put(TITLE, note.getTitle());
         args.put(DESCRIPTION, note.getDescription());
@@ -96,8 +96,39 @@ public class NoteHelper {
         return database.update(DATABASE_TABLE, args, _ID + "= '" + note.getId() + "'", null);
     }
 
-    //deletion
-    public int deleteNote(int id) {
-        return database.delete(TABLE_NOTE, _ID + " = '" + id + "'", null);
+    public int delete(int id) {
+        return database.delete(TABLE_NAME, _ID + " = '" + id + "'", null);
+    }
+
+    public Cursor queryByIdProvider(String id) {
+        return database.query(DATABASE_TABLE, null
+                , _ID + " = ?"
+                , new String[]{id}
+                , null
+                , null
+                , null
+                , null);
+    }
+
+    public Cursor queryProvider() {
+        return database.query(DATABASE_TABLE
+                , null
+                , null
+                , null
+                , null
+                , null
+                , _ID + " ASC");
+    }
+
+    public long insertProvider(ContentValues values) {
+        return database.insert(DATABASE_TABLE, null, values);
+    }
+
+    public int updateProvider(String id, ContentValues values) {
+        return database.update(DATABASE_TABLE, values, _ID + " = ?", new String[]{id});
+    }
+
+    public int deleteProvider(String id) {
+        return database.delete(DATABASE_TABLE, _ID + " = ?", new String[]{id});
     }
 }
